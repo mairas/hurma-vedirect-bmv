@@ -1,125 +1,105 @@
-// Signal K application template file.
-//
-// This application demonstrates core SensESP concepts in a very
-// concise manner. You can build and upload the application as is
-// and observe the value changes on the serial port monitor.
-//
-// You can use this source file as a basis for your own projects.
-// Remove the parts that are not relevant to you, and add your own code
-// for external hardware libraries.
+// An example of interfacing a smart battery monitor with Signal K.
 
-#include "sensesp/sensors/analog_input.h"
-#include "sensesp/sensors/digital_input.h"
-#include "sensesp/sensors/sensor.h"
+#include <Arduino.h>
+
+#include "ReactESP.h"
 #include "sensesp/signalk/signalk_output.h"
-#include "sensesp/system/lambda_consumer.h"
+#include "sensesp_app.h"
 #include "sensesp_app_builder.h"
+#include "sevedirect/sensors/vedirect.h"
+
+// SDA and SCL pins on SH-ESP32
+constexpr int kSDAPin = 16;
+constexpr int kSCLPin = 17;
+
+// ON SH-ESP32, we're using SCL and SDA pins for I/O because they've got a bit
+// of EMC protection.
+constexpr int kTXPin = kSCLPin;
+constexpr int kRXPin = kSDAPin;
 
 using namespace sensesp;
 
 reactesp::ReactESP app;
 
-// The setup function performs one-time application initialization.
 void setup() {
+// Some initialization boilerplate when in debug mode...
 #ifndef SERIAL_DEBUG_DISABLED
   SetupSerialDebug(115200);
 #endif
 
-  // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
-  sensesp_app = (&builder)
-                    // Set a custom hostname for the app.
-                    ->set_hostname("my-sensesp-project")
-                    // Optionally, hard-code the WiFi and Signal K server
-                    // settings. This is normally not needed.
-                    //->set_wifi("My WiFi SSID", "my_wifi_password")
-                    //->set_sk_server("192.168.10.3", 80)
-                    ->get_app();
 
-  // GPIO number to use for the analog input
-  const uint8_t kAnalogInputPin = 36;
-  // Define how often (in milliseconds) new samples are acquired
-  const unsigned int kAnalogInputReadInterval = 500;
-  // Define the produced value at the maximum input voltage (3.3V).
-  // A value of 3.3 gives output equal to the input voltage.
-  const float kAnalogInputScale = 3.3;
+  sensesp_app = builder.set_hostname("vedirect-bmv")->get_app();
 
-  // Create a new Analog Input Sensor that reads an analog input pin
-  // periodically.
-  auto* analog_input = new AnalogInput(
-      kAnalogInputPin, kAnalogInputReadInterval, "", kAnalogInputScale);
+  // initialize Serial1 on the opto_in pin
 
-  // Add an observer that prints out the current value of the analog input
-  // every time it changes.
-  analog_input->attach([analog_input]() {
-    debugD("Analog input value: %f", analog_input->get());
-  });
+  Serial1.begin(19200, SERIAL_8N1, kRXPin, kTXPin, false);
 
-  // Set GPIO pin 15 to output and toggle it every 650 ms
+  // Uncomment these lines to output VE.Direct input to the Serial port for
+  // debugging purposes.
 
-  const uint8_t kDigitalOutputPin = 15;
-  const unsigned int kDigitalOutputInterval = 650;
-  pinMode(kDigitalOutputPin, OUTPUT);
-  app.onRepeat(kDigitalOutputInterval, [kDigitalOutputPin]() {
-    digitalWrite(kDigitalOutputPin, !digitalRead(kDigitalOutputPin));
-  });
+  // app.onAvailable(Serial1, []() {
+  //   Serial.write(Serial1.read());
+  // });
 
-  // Read GPIO 14 every time it changes
+  VEDirectInput* vedi = new VEDirectInput(&Serial1);
 
-  const uint8_t kDigitalInput1Pin = 14;
-  auto* digital_input1 =
-      new DigitalInputChange(kDigitalInput1Pin, INPUT_PULLUP, CHANGE);
+  vedi->parser.data.channel_1_battery_voltage.connect_to(new SKOutputFloat(
+      "electrical.batteries.house.voltage", "/Signal K/House Battery Voltage"));
+  vedi->parser.data.channel_1_battery_current.connect_to(new SKOutputFloat(
+      "electrical.batteries.house.current", "/Signal K/House Battery Current"));
+  vedi->parser.data.state_of_charge.connect_to(
+      new SKOutputFloat("electrical.batteries.house.capacity.stateOfCharge",
+                        "/Signal K/House Battery State Of Charge"));
 
-  // Connect the digital input to a lambda consumer that prints out the
-  // value every time it changes.
+  vedi->parser.data.instantaneous_power.connect_to(new SKOutputFloat(
+      "electrical.batteries.house.power", "/Signal K/House Battery Power"));
 
-  // Test this yourself by connecting pin 15 to pin 14 with a jumper wire and
-  // see if the value changes!
+  vedi->parser.data.consumed_energy.connect_to(
+      new SKOutputFloat("electrical.batteries.house.consumedEnergy",
+                        "/Signal K/House Battery Consumed Energy"));
 
-  digital_input1->connect_to(new LambdaConsumer<bool>(
-      [](bool input) { debugD("Digital input value changed: %d", input); }));
+  vedi->parser.data.time_to_go.connect_to(
+      new SKOutputFloat("electrical.batteries.house.timeToGo",
+                        "/Signal K/House Battery Time To Go"));
 
-  // Create another digital input, this time with RepeatSensor. This approach
-  // can be used to connect external sensor library to SensESP!
+  vedi->parser.data.depth_of_deepest_discharge.connect_to(
+      new SKOutputFloat("electrical.batteries.house.depthOfDeepestDischarge",
+                        "/Signal K/House Battery Depth Of Deepest Discharge"));
+  vedi->parser.data.depth_of_last_discharge.connect_to(
+      new SKOutputFloat("electrical.batteries.house.depthOfLastDischarge",
+                        "/Signal K/House Battery Depth Of Last Discharge"));
+  vedi->parser.data.depth_of_average_discharge.connect_to(
+      new SKOutputFloat("electrical.batteries.house.depthOfAverageDischarge",
+                        "/Signal K/House Battery Depth Of Average Discharge"));
+  vedi->parser.data.number_of_charge_cycles.connect_to(
+      new SKOutputInt("electrical.batteries.house.numberOfChargeCycles",
+                      "/Signal K/House Battery Number Of Charge Cycles"));
+  vedi->parser.data.number_of_full_discharges.connect_to(
+      new SKOutputInt("electrical.batteries.house.numberOfFullDischarges",
+                      "/Signal K/House Battery Number Of Full Discharges"));
+  vedi->parser.data.cumulative_energy_drawn.connect_to(
+      new SKOutputFloat("electrical.batteries.house.cumulativeEnergyDrawn",
+                        "/Signal K/House Battery Cumulative Energy Drawn"));
+  vedi->parser.data.minimum_main_voltage.connect_to(
+      new SKOutputFloat("electrical.batteries.house.minimumVoltage",
+                        "/Signal K/House Battery Minimum Voltage"));
+  vedi->parser.data.maximum_main_voltage.connect_to(
+      new SKOutputFloat("electrical.batteries.house.maximumVoltage",
+                        "/Signal K/House Battery Maximum Voltage"));
+  vedi->parser.data.seconds_since_last_full_charge.connect_to(new SKOutputFloat(
+      "electrical.batteries.house.secondsSinceLastFullCharge",
+      "/Signal K/House Battery Seconds Since Last Full Charge"));
 
-  const uint8_t kDigitalInput2Pin = 13;
-  const unsigned int kDigitalInput2Interval = 1000;
+  vedi->parser.data.auxiliary_voltage.connect_to(new SKOutputFloat(
+      "electrical.batteries.start.voltage", "/Signal K/Start Battery Voltage"));
+  vedi->parser.data.minimum_auxiliary_voltage.connect_to(
+      new SKOutputFloat("electrical.batteries.start.minimumVoltage",
+                        "/Signal K/Start Battery Minimum Voltage"));
+  vedi->parser.data.maximum_auxiliary_voltage.connect_to(
+      new SKOutputFloat("electrical.batteries.start.maximumVoltage",
+                        "/Signal K/Start Battery Maximum Voltage"));
 
-  // Configure the pin. Replace this with your custom library initialization
-  // code!
-  pinMode(kDigitalInput2Pin, INPUT_PULLUP);
-
-  // Define a new RepeatSensor that reads the pin every 100 ms.
-  // Replace the lambda function internals with the input routine of your custom
-  // library.
-
-  // Again, test this yourself by connecting pin 15 to pin 13 with a jumper
-  // wire and see if the value changes!
-
-  auto* digital_input2 = new RepeatSensor<bool>(
-      kDigitalInput2Interval,
-      [kDigitalInput2Pin]() { return digitalRead(kDigitalInput2Pin); });
-
-  // Connect the analog input to Signal K output. This will publish the
-  // analog input value to the Signal K server every time it changes.
-  analog_input->connect_to(new SKOutputFloat(
-      "sensors.analog_input.voltage",         // Signal K path
-      "/sensors/analog_input/voltage",        // configuration path, used in the
-                                              // web UI and for storing the
-                                              // configuration
-      new SKMetadata("V",                     // Define output units
-                     "Analog input voltage")  // Value description
-      ));
-
-  // Connect digital input 2 to Signal K output.
-  digital_input2->connect_to(new SKOutputBool(
-      "sensors.digital_input2.value",          // Signal K path
-      "/sensors/digital_input2/value",         // configuration path
-      new SKMetadata("",                       // No units for boolean values
-                     "Digital input 2 value")  // Value description
-      ));
-
-  // Start networking, SK server connections and other SensESP internals
   sensesp_app->start();
 }
 

@@ -1,9 +1,7 @@
-# SensESP Project Template
+# VE.Direct Smart Battery Monitor Interface Firmware for Hurma
 
-This repository provides a template for [SensESP](https://github.com/SignalK/SensESP/) projects.
-Fork, clone or download the repository and try building and uploading the project to an ESP32 device.
-You should immediately see output on the serial monitor!
+This repository provides "production" firmware for the SH-ESP32 device interfacing a Victron Energy BMV-712 battery monitor with the Signal K server on s/y Hurma.
 
-To customize the template for your own purposes, edit the `src/main.cpp` and `platformio.ini` files.
+The repository should be usable as is for interfacing any Victron battery monitors with a VE.Direct interface.
 
-Comprehensive documentation for SensESP, including how to get started with your own project, is available at the [SensESP documentation site](https://signalk.org/SensESP/).
+For more information, see the README for the [SensESP/VEDirect](https://github.com/SensESP/VEDirect) library.
